@@ -1,0 +1,6 @@
+eclipse.preferences.version=1
+environment/project/0.1901081806/PATH/delimiter=\:
+environment/project/0.1901081806/PATH/operation=append
+environment/project/0.1901081806/PATH/value=${PATH}\:/usr/local/bin
+environment/project/0.1901081806/append=true
+environment/project/0.1901081806/appendContributed=true

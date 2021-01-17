@@ -257,6 +257,13 @@ read_eip(void) {
     return eip;
 }
 
+static __noinline uint32_t
+read_stack(uint32_t add) {
+	uint32_t data;
+    asm volatile("movl (%1), %0" : "=r" (data) : "r"(add));
+    return data;
+}
+
 /* *
  * print_stackframe - print a list of the saved eip values from the nested 'call'
  * instructions that led to the current point of execution
@@ -305,5 +312,16 @@ print_stackframe(void) {
       *           NOTICE: the calling funciton's return addr eip  = ss:[ebp+4]
       *                   the calling funciton's ebp = ss:[ebp]
       */
+	int i = 0;
+
+	uint32_t ebp = read_ebp();
+	uint32_t eip = read_eip();
+
+	for(i = 0;ebp != 0 && i < STACKFRAME_DEPTH;i++){
+		cprintf("ebp:0x%08x eip:0x%08x args:0x%08x 0x%08x 0x%08x 0x%08x\n", ebp, eip, read_stack(ebp + 8),read_stack(ebp + 12),read_stack(ebp + 16),read_stack(ebp + 20));
+		print_debuginfo(eip - 1);
+		eip = ((uint32_t*)ebp)[1]; //read_stack(ebp + 4);
+		ebp = ((uint32_t*)ebp)[0]; //read_stack(ebp);
+	}
 }
 

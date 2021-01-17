@@ -34,15 +34,18 @@ readline(const char *prompt) {
         }
         else if (c >= ' ' && i < BUFSIZE - 1) {
             cputchar(c);
+            cprintf("1");
             buf[i ++] = c;
         }
         else if (c == '\b' && i > 0) {
             cputchar(c);
             i --;
+            cprintf("2");
         }
         else if (c == '\n' || c == '\r') {
             cputchar(c);
             buf[i] = '\0';
+            cprintf("3");
             return buf;
         }
     }

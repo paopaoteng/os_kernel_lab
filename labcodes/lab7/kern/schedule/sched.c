@@ -99,9 +99,24 @@ schedule(void) {
     local_intr_restore(intr_flag);
 }
 
+void print_timer_list(void){
+    bool intr_flag;
+    local_intr_save(intr_flag);
+    {
+        list_entry_t  *le = &timer_list;
+        while((le = list_next(le)) != &timer_list){
+            timer_t *timer = le2timer(le, timer_link);
+            cprintf("expires:%d,pid: %d; ", timer->expires, timer->proc->pid);
+        }
+        cprintf("\n");
+    }
+    local_intr_restore(intr_flag);
+}
+
 // add timer to timer_list
 void
 add_timer(timer_t *timer) {
+
     bool intr_flag;
     local_intr_save(intr_flag);
     {
@@ -125,6 +140,7 @@ add_timer(timer_t *timer) {
 // del timer from timer_list
 void
 del_timer(timer_t *timer) {
+
     bool intr_flag;
     local_intr_save(intr_flag);
     {
@@ -145,6 +161,7 @@ del_timer(timer_t *timer) {
 // call scheduler to update tick related info, and check the timer is expired? If expired, then wakup proc
 void
 run_timer_list(void) {
+
     bool intr_flag;
     local_intr_save(intr_flag);
     {
@@ -174,3 +191,4 @@ run_timer_list(void) {
     }
     local_intr_restore(intr_flag);
 }
+

@@ -192,7 +192,7 @@ page_init(void) {
     struct e820map *memmap = (struct e820map *)(0x8000 + KERNBASE);
     uint64_t maxpa = 0;
 
-    cprintf("e820map:\n");
+    //cprintf("e820map:\n");
     int i;
     for (i = 0; i < memmap->nr_map; i ++) {
         uint64_t begin = memmap->map[i].addr, end = begin + memmap->map[i].size;
@@ -221,6 +221,7 @@ page_init(void) {
 
     for (i = 0; i < memmap->nr_map; i ++) {
         uint64_t begin = memmap->map[i].addr, end = begin + memmap->map[i].size;
+
         if (memmap->map[i].type == E820_ARM) {
             if (begin < freemem) {
                 begin = freemem;
@@ -297,6 +298,7 @@ pmm_init(void) {
 
     // recursively insert boot_pgdir in itself
     // to form a virtual page table at virtual address VPT
+    cprintf("PDX(VPT):%x\n", PDX(VPT));
     boot_pgdir[PDX(VPT)] = PADDR(boot_pgdir) | PTE_P | PTE_W;
 
     // map all physical memory to linear memory with base linear addr KERNBASE
@@ -314,6 +316,10 @@ pmm_init(void) {
     check_boot_pgdir();
 
     print_pgdir();
+
+    pte_t *p = get_pte(boot_pgdir, vpt, 0);
+    cprintf("p = 0x%x\n", p);
+    cprintf("*p & PTE_P = 0x%x\n", *p & PTE_P);
 
 }
 
@@ -347,18 +353,37 @@ get_pte(pde_t *pgdir, uintptr_t la, bool create) {
      *   PTE_W           0x002                   // page table/directory entry flags bit : Writeable
      *   PTE_U           0x004                   // page table/directory entry flags bit : User can access
      */
-#if 0
-    pde_t *pdep = NULL;   // (1) find page directory entry
-    if (0) {              // (2) check if entry is not present
-                          // (3) check if creating is needed, then alloc page for page table
-                          // CAUTION: this page is used for page table, not for common data page
-                          // (4) set page reference
-        uintptr_t pa = 0; // (5) get linear address of page
-                          // (6) clear page content using memset
-                          // (7) set page directory entry's permission
+
+	// (1) find page directory entry
+    pde_t *pdep = pgdir + PDX(la);
+    // (2) check if entry is not present
+    if (!(*pdep & PTE_P)) {
+    	// (3) check if creating is needed, then alloc page for page table
+    	// CAUTION: this page is used for page table, not for common data page
+    	if(create){
+    		struct Page *page = alloc_page();
+
+    		// (4) set page reference
+    		set_page_ref(page, 1);
+
+    		*pdep = page2pa(page) + PTE_P + PTE_W + PTE_U;
+    		// (5) get linear address of page
+    		pte_t *p = (pte_t*)KADDR(page2pa(page));
+
+    		// (6) clear page content using memset
+    		memset(p, 0, PGSIZE);
+
+    		return KADDR(page2pa(page) + PTX(la));
+    	}else{
+    		return NULL;
+    	}
+        // (7) set page directory entry's permission
+    }else{
+    	//cprintf("(pte_t*)(*pdep) + PTX(la):0x%x,la:0x%x\n", (pte_t*)(*pdep) + PTX(la));
+    	return KADDR((pte_t*)(PDE_ADDR(*pdep)) + PTX(la));
     }
     return NULL;          // (8) return page table entry
-#endif
+
 }
 
 //get_page - get related Page struct for linear address la using PDT pgdir
@@ -404,6 +429,15 @@ page_remove_pte(pde_t *pgdir, uintptr_t la, pte_t *ptep) {
                                   //(6) flush tlb
     }
 #endif
+
+    if(*ptep & PTE_P){
+    	struct Page *page = pte2page(*ptep);
+    	page_ref_dec(page);
+    	if(page->ref == 0){
+    		free_page(page);
+    	}
+    }
+    tlb_invalidate(pgdir, la);
 }
 
 //page_remove - free an Page which is related linear address la and has an validated pte
@@ -440,6 +474,7 @@ page_insert(pde_t *pgdir, struct Page *page, uintptr_t la, uint32_t perm) {
         }
     }
     *ptep = page2pa(page) | PTE_P | perm;
+    //cprintf("ptep = 0x%x,*ptep = 0x%x\n", ptep, *ptep);
     tlb_invalidate(pgdir, la);
     return 0;
 }
@@ -471,6 +506,7 @@ check_pgdir(void) {
 
     pte_t *ptep;
     assert((ptep = get_pte(boot_pgdir, 0x0, 0)) != NULL);
+
     assert(pte2page(*ptep) == p1);
     assert(page_ref(p1) == 1);
 

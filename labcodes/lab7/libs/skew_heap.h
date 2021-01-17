@@ -1,6 +1,8 @@
 #ifndef __LIBS_SKEW_HEAP_H__
 #define __LIBS_SKEW_HEAP_H__
 
+#include <stdio.h>
+
 struct skew_heap_entry {
      struct skew_heap_entry *parent, *left, *right;
 };
@@ -8,6 +10,8 @@ struct skew_heap_entry {
 typedef struct skew_heap_entry skew_heap_entry_t;
 
 typedef int(*compare_f)(void *a, void *b);
+
+typedef void(*print_f)(void *a);
 
 static inline void skew_heap_init(skew_heap_entry_t *a) __attribute__((always_inline));
 static inline skew_heap_entry_t *skew_heap_merge(
@@ -19,6 +23,10 @@ static inline skew_heap_entry_t *skew_heap_insert(
 static inline skew_heap_entry_t *skew_heap_remove(
      skew_heap_entry_t *a, skew_heap_entry_t *b,
      compare_f comp) __attribute__((always_inline));
+
+static inline void skew_heap_print(
+        skew_heap_entry_t *a, print_f print) __attribute__((always_inline));
+
 
 static inline void
 skew_heap_init(skew_heap_entry_t *a)
@@ -82,6 +90,24 @@ skew_heap_remove(skew_heap_entry_t *a, skew_heap_entry_t *b,
           return a;
      }
      else return rep;
+}
+
+
+
+static inline void skew_heap_echo(skew_heap_entry_t *a, print_f print){
+    if(a){
+        print(a);
+    }else{
+        return;
+    }
+
+    skew_heap_echo(a->left, print);
+    skew_heap_echo(a->right, print);
+}
+
+static inline void skew_heap_print(skew_heap_entry_t *a, print_f print) {
+    skew_heap_echo(a, print);
+    cprintf("\n");
 }
 
 #endif    /* !__LIBS_SKEW_HEAP_H__ */

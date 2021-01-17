@@ -5,8 +5,8 @@
 # memory at physical address 0x7c00 and starts executing in real mode
 # with %cs=0 %ip=7c00.
 
-.set PROT_MODE_CSEG,        0x8                     # kernel code segment selector
-.set PROT_MODE_DSEG,        0x10                    # kernel data segment selector
+.set PROT_MODE_CSEG,        0x8                     # kernel code segment selector 根据segment selector 的格式，0x8的下标为1。13位Index，1位type，2位RPL
+.set PROT_MODE_DSEG,        0x10                    # kernel data segment selector 根据segment selector 的格式，0x10的下标为2。13位Index，1位type，2位RPL
 .set CR0_PE_ON,             0x1                     # protected mode enable flag
 
 # start address should be 0:7c00, in real mode, the beginning address of the running bootloader
@@ -81,6 +81,7 @@ gdt:
     SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff)           # code seg for bootloader and kernel
     SEG_ASM(STA_W, 0x0, 0xffffffff)                 # data seg for bootloader and kernel
 
+
 gdtdesc:
-    .word 0x17                                      # sizeof(gdt) - 1
+    .word 0x17                                      # sizeof(gdt) - 1，23，3*8-1
     .long gdt                                       # address gdt

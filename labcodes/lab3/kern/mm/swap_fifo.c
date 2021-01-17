@@ -51,6 +51,7 @@ _fifo_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int
     //record the page access situlation
     /*LAB3 EXERCISE 2: YOUR CODE*/ 
     //(1)link the most recent arrival page at the back of the pra_list_head qeueue.
+    list_add_before(head, entry);
     return 0;
 }
 /*
@@ -67,8 +68,15 @@ _fifo_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tick
      /*LAB3 EXERCISE 2: YOUR CODE*/ 
      //(1)  unlink the  earliest arrival page in front of pra_list_head qeueue
      //(2)  assign the value of *ptr_page to the addr of this page
+
+     struct Page *page = le2page(head->next, pra_page_link);
+     list_del(head->next);
+     *ptr_page = page;
+     //cprintf("head:0x%08x, page:0x%08x, %la:0x%08x\n", head, page, page->pra_vaddr);
      return 0;
 }
+
+
 
 static int
 _fifo_check_swap(void) {
@@ -89,18 +97,23 @@ _fifo_check_swap(void) {
     assert(pgfault_num==5);
     cprintf("write Virt Page b in fifo_check_swap\n");
     *(unsigned char *)0x2000 = 0x0b;
+    assert(*(unsigned char *)0x2000 == 0x0b);
     assert(pgfault_num==5);
     cprintf("write Virt Page a in fifo_check_swap\n");
     *(unsigned char *)0x1000 = 0x0a;
+    assert(*(unsigned char *)0x1000 == 0x0a);
     assert(pgfault_num==6);
     cprintf("write Virt Page b in fifo_check_swap\n");
     *(unsigned char *)0x2000 = 0x0b;
+    assert(*(unsigned char *)0x2000 == 0x0b);
     assert(pgfault_num==7);
     cprintf("write Virt Page c in fifo_check_swap\n");
     *(unsigned char *)0x3000 = 0x0c;
+    assert(*(unsigned char *)0x3000 == 0x0c);
     assert(pgfault_num==8);
     cprintf("write Virt Page d in fifo_check_swap\n");
     *(unsigned char *)0x4000 = 0x0d;
+    assert(*(unsigned char *)0x4000 == 0x0d);
     assert(pgfault_num==9);
     cprintf("write Virt Page e in fifo_check_swap\n");
     *(unsigned char *)0x5000 = 0x0e;

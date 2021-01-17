@@ -105,6 +105,7 @@ kva2page(void *kva) {
 static inline struct Page *
 pte2page(pte_t pte) {
     if (!(pte & PTE_P)) {
+    	cprintf("pte:0x%x\n", pte);
         panic("pte2page called with invalid pte");
     }
     return pa2page(PTE_ADDR(pte));

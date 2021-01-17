@@ -98,6 +98,33 @@ free_area_t free_area;
 #define free_list (free_area.free_list)
 #define nr_free (free_area.nr_free)
 
+static void default_print_free_list(char *remark){
+	list_entry_t *le = &free_list;
+
+	cprintf("remark:%s\n", remark);
+	cprintf("free_list:0x%08x, pages:0x%08x, total free pages:%d\n", &free_list,pages,nr_free);
+
+	while((le = list_next(le)) != &free_list){
+		struct Page *p = le2page(le, page_link);
+		unsigned no = -1, prev_no = -1, next_no = -1;
+		no = p - pages;
+		//cprintf("p = 0x%08x, dis = %d\n", p, p - pages);
+
+		struct Page *prev = le2page(p->page_link.prev, page_link);
+
+		if(p->page_link.prev != &free_list){
+			prev_no = prev - pages;
+		}
+
+		struct Page *next = le2page(p->page_link.next, page_link);
+
+		if(p->page_link.next != &free_list){
+			next_no = next - pages;
+		}
+		cprintf("Page:no = %d, prev_no = %d, next_no = %d, count = %d\n\n\n",no, prev_no, next_no, p->property);
+	}
+}
+
 static void
 default_init(void) {
     list_init(&free_list);
@@ -127,6 +154,7 @@ default_alloc_pages(size_t n) {
     }
     struct Page *page = NULL;
     list_entry_t *le = &free_list;
+    // TODO: optimize (next-fit)
     while ((le = list_next(le)) != &free_list) {
         struct Page *p = le2page(le, page_link);
         if (p->property >= n) {
@@ -135,18 +163,18 @@ default_alloc_pages(size_t n) {
         }
     }
     if (page != NULL) {
-        list_del(&(page->page_link));
         if (page->property > n) {
             struct Page *p = page + n;
             p->property = page->property - n;
-            list_add(&free_list, &(p->page_link));
-    }
+            SetPageProperty(p);
+            list_add_after(&(page->page_link), &(p->page_link));
+        }
+        list_del(&(page->page_link));
         nr_free -= n;
         ClearPageProperty(page);
     }
     return page;
 }
-
 static void
 default_free_pages(struct Page *base, size_t n) {
     assert(n > 0);
@@ -159,23 +187,50 @@ default_free_pages(struct Page *base, size_t n) {
     base->property = n;
     SetPageProperty(base);
     list_entry_t *le = list_next(&free_list);
-    while (le != &free_list) {
-        p = le2page(le, page_link);
-        le = list_next(le);
-        if (base + base->property == p) {
-            base->property += p->property;
-            ClearPageProperty(p);
-            list_del(&(p->page_link));
-        }
-        else if (p + p->property == base) {
-            p->property += base->property;
-            ClearPageProperty(base);
-            base = p;
-            list_del(&(p->page_link));
+
+    if(le == &free_list){
+    	list_add_after(&free_list, &(base->page_link));
+    	nr_free += n;
+    	return;
+    }
+
+    p = le2page(le, page_link);
+    if(base + base->property < p){
+    	list_add_after(&free_list, &(base->page_link));
+    }else if(base + base->property == p){
+    	ClearPageProperty(p);
+    	base->property += p->property;
+    	list_del(&(p->page_link));
+    	list_add_after(&free_list, &(base->page_link));
+    }else{
+        while (le != &free_list) {
+            p = le2page(le, page_link);
+            le = list_next(le);
+
+            if(p + p->property == base){
+            	p->property += base->property;
+            	ClearPageProperty(base);
+            }else if(base + base->property == p){
+            	struct Page * pre = le2page(p->page_link.prev, page_link);
+            	if(pre + pre->property == p){
+            		pre->property += p->property;
+            		ClearPageProperty(p);
+            		list_del(&(p->page_link));
+            	}else{
+            		base->property += p->property;
+            		ClearPageProperty(p);
+            		list_del(&(p->page_link));
+            		list_add_after(&(pre->page_link), &(base->page_link));
+            	}
+            }else{
+            	if(p + p->property < base &&(le == &free_list || base + base->property < le2page(le, page_link))){
+            		list_add_after(&(p->page_link), &(base->page_link));
+            	}
+            }
         }
     }
+
     nr_free += n;
-    list_add(&free_list, &(base->page_link));
 }
 
 static size_t

@@ -115,6 +115,7 @@ testfile(const char *name) {
 
 int
 runcmd(char *cmd) {
+    printf("runcmd:%s\n", cmd);
     static char argv0[BUFSIZE];
     const char *argv[EXEC_MAX_ARG_NUM + 1];
     char *t;
@@ -216,7 +217,8 @@ runit:
 
 int
 main(int argc, char **argv) {
-    printf("user sh is running!!!");
+    printf("user sh is running!!!\n");
+
     int ret, interactive = 1;
     if (argc == 2) {
         if ((ret = reopen(0, argv[1], O_RDONLY)) != 0) {
@@ -235,10 +237,12 @@ main(int argc, char **argv) {
     while ((buffer = readline((interactive) ? "$ " : NULL)) != NULL) {
         shcwd[0] = '\0';
         int pid;
+        printf("argvss:%s\n", argv[1]);
         if ((pid = fork()) == 0) {
             ret = runcmd(buffer);
             exit(ret);
         }
+
         assert(pid >= 0);
         if (waitpid(pid, &ret) == 0) {
             if (ret == 0 && shcwd[0] != '\0') {

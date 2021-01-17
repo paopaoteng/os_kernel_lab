@@ -80,6 +80,7 @@ static int nr_process = 0;
 void kernel_thread_entry(void);
 void forkrets(struct trapframe *tf);
 void switch_to(struct context *from, struct context *to);
+static int get_pid(void);
 
 // alloc_proc - alloc a proc_struct and init all fields of proc_struct
 static struct proc_struct *
@@ -102,6 +103,17 @@ alloc_proc(void) {
      *       uint32_t flags;                             // Process flag
      *       char name[PROC_NAME_LEN + 1];               // Process name
      */
+    	proc->state = PROC_UNINIT;
+    	proc->pid = -1;
+    	proc->runs = 0;
+    	proc->kstack = 0;
+    	proc->need_resched = 0;
+    	proc->parent = NULL;
+    	proc->mm = NULL;
+    	memset(&proc->context, 0, sizeof(struct context));
+    	proc->cr3 = boot_cr3;
+    	proc->flags = 0;
+    	memset(proc->name, 0, PROC_NAME_LEN);
     }
     return proc;
 }
@@ -170,6 +182,7 @@ proc_run(struct proc_struct *proc) {
             lcr3(next->cr3);
             switch_to(&(prev->context), &(next->context));
         }
+        cprintf("此处应执行不到");
         local_intr_restore(intr_flag);
     }
 }
@@ -296,6 +309,33 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     //    5. insert proc_struct into hash_list && proc_list
     //    6. call wakeup_proc to make the new child process RUNNABLE
     //    7. set ret vaule using child proc's pid
+
+	if((proc = alloc_proc()) == NULL){
+		goto bad_fork_cleanup_proc;
+	}
+
+	if(setup_kstack(proc) != 0){
+		goto bad_fork_cleanup_kstack;
+	}
+
+	proc->parent = current;
+
+    copy_mm(clone_flags, proc);
+    copy_thread(proc, stack, tf);
+
+    bool intr_flag;
+    local_intr_save(intr_flag);
+    {
+        proc->pid = get_pid();
+        list_add(&proc_list, &proc->list_link);
+        hash_proc(proc);
+        nr_process++;
+    }
+    local_intr_restore(intr_flag);
+
+    wakeup_proc(proc);
+    ret = proc->pid;
+
 fork_out:
     return ret;
 
@@ -313,6 +353,9 @@ bad_fork_cleanup_proc:
 int
 do_exit(int error_code) {
     panic("process exit!!.\n");
+	//exit_mmap()
+	//put_pgdir
+
 }
 
 // init_main - the second kernel thread used to create user_main kernel threads

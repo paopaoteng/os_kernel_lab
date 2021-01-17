@@ -57,10 +57,10 @@ mm_create(void) {
 
 // vma_create - alloc a vma_struct & initialize it. (addr range: vm_start~vm_end)
 struct vma_struct *
-vma_create(uintptr_t vm_start, uintptr_t vm_end, uint32_t vm_flags) {
+vma_create(uintptr_t vm_start, uintptr_t vm_end, uint32_t vm_flags) { // @suppress("Type cannot be resolved")
     struct vma_struct *vma = kmalloc(sizeof(struct vma_struct));
 
-    if (vma != NULL) {
+    if (vma != NULL) { // @suppress("Symbol is not resolved")
         vma->vm_start = vm_start;
         vma->vm_end = vm_end;
         vma->vm_flags = vm_flags;
@@ -257,6 +257,7 @@ check_pgfault(void) {
 
     int i, sum = 0;
     for (i = 0; i < 100; i ++) {
+    	//cprintf("addr = %x\n", addr);
         *(char *)(addr + i) = i;
         sum += i;
     }
@@ -277,6 +278,16 @@ check_pgfault(void) {
 
     cprintf("check_pgfault() succeeded!\n");
 }
+
+static void
+print_page_list(struct mm_struct *mm){
+	list_entry_t *head=(list_entry_t*) mm->sm_priv;
+	list_entry_t *le = head;
+	while((le = le->next) != head){
+		//cprintf("page va : 0x%08x\n", le2page(le, pra_page_link)->pra_vaddr);
+	}
+}
+
 //page fault number
 volatile unsigned int pgfault_num=0;
 
@@ -302,13 +313,14 @@ volatile unsigned int pgfault_num=0;
  *            or supervisor mode (0) at the time of the exception.
  */
 int
-do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
+do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) { // @suppress("Type cannot be resolved")
+	//cprintf("do_pgfault:%08x\n", addr);
     int ret = -E_INVAL;
     //try to find a vma which include addr
     struct vma_struct *vma = find_vma(mm, addr);
 
     pgfault_num++;
-    //If the addr is in the range of a mm's vma?
+    //If the addr is not in the range of a mm's vma?
     if (vma == NULL || vma->vm_start > addr) {
         cprintf("not valid addr %x, and  can not find it in vma\n", addr);
         goto failed;
@@ -364,14 +376,13 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     *   mm->pgdir : the PDT of these vma
     *
     */
-#if 0
     /*LAB3 EXERCISE 1: YOUR CODE*/
-    ptep = ???              //(1) try to find a pte, if pte's PT(Page Table) isn't existed, then create a PT.
+    //(1) try to find a pte, if pte's PT(Page Table) isn't existed, then create a PT.
+    ptep = get_pte(mm->pgdir, addr, 1);
     if (*ptep == 0) {
-                            //(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
-
-    }
-    else {
+		//(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
+    	pgdir_alloc_page(mm->pgdir, addr, perm);
+    }else{
     /*LAB3 EXERCISE 2: YOUR CODE
     * Now we think this pte is a  swap entry, we should load data from disk to a page with phy addr,
     * and map the phy addr with logical addr, trigger swap manager to record the access situation of this page.
@@ -383,20 +394,26 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     *    page_insert ： build the map of phy addr of an Page with the linear addr la
     *    swap_map_swappable ： set the page swappable
     */
+
+
+        //(1）According to the mm AND addr, try to load the content of right disk page
+        //    into the memory which page managed.
+        //(2) According to the mm, addr AND page, setup the map of phy addr <---> logical addr
+        //(3) make the page swappable.
         if(swap_init_ok) {
             struct Page *page=NULL;
-                                    //(1）According to the mm AND addr, try to load the content of right disk page
-                                    //    into the memory which page managed.
-                                    //(2) According to the mm, addr AND page, setup the map of phy addr <---> logical addr
-                                    //(3) make the page swappable.
+			swap_in(mm, addr, &page);
+			page_insert(mm->pgdir, page, addr, perm);
+			swap_map_swappable(mm, addr,page, swap_in);
+			page->pra_vaddr=addr;
         }
         else {
             cprintf("no swap_init_ok but ptep is %x, failed\n",*ptep);
             goto failed;
         }
    }
-#endif
    ret = 0;
+   print_page_list(mm);
 failed:
     return ret;
 }

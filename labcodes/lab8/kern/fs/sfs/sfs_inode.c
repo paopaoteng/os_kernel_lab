@@ -541,7 +541,7 @@ sfs_close(struct inode *node) {
 }
 
 /*  
- * sfs_io_nolock - Rd/Wr a file contentfrom offset position to offset+ length  disk blocks<-->buffer (in memroy)
+ * sfs_io_nolock - Rd/Wr a file content from offset position to offset+ length  disk blocks<-->buffer (in memroy)
  * @sfs:      sfs file system
  * @sin:      sfs inode in memory
  * @buf:      the buffer Rd/Wr
@@ -599,6 +599,35 @@ sfs_io_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, void *buf, off_t offset
      * (3) If end position isn't aligned with the last block, Rd/Wr some content from begin to the (endpos % SFS_BLKSIZE) of the last block
 	 *       NOTICE: useful function: sfs_bmap_load_nolock, sfs_buf_op	
 	*/
+
+    blkoff = offset % SFS_BLKSIZE;
+    do{
+        size = (nblks > 0) ? (SFS_BLKSIZE - blkoff) : endpos - offset;
+
+        if((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0){
+            return ret;
+        }
+
+        if(size < SFS_BLKSIZE){
+            if((ret = sfs_buf_op(sfs, buf, size, ino, blkoff)) != 0){
+                return ret;
+            }
+        }else{
+            if((ret = sfs_block_op(sfs, buf, ino, 1)) != 0){
+                return ret;
+            }
+        }
+
+        buf += size;
+        alen += size;
+        blkno++;
+        blkoff = 0;
+        if(nblks > 0){
+            nblks--;
+        }
+
+    }while(nblks >= 1);
+
 out:
     *alenp = alen;
     if (offset + alen > sin->din->size) {

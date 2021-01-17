@@ -1,0 +1,1160 @@
+diff --git a/labcodes/lab4/.settings/org.eclipse.cdt.core.prefs b/labcodes/lab4/.settings/org.eclipse.cdt.core.prefs
+new file mode 100644
+index 0000000..441beaa
+--- /dev/null
++++ b/labcodes/lab4/.settings/org.eclipse.cdt.core.prefs
+@@ -0,0 +1,11 @@
++eclipse.preferences.version=1
++environment/project/0.479967803.158903942/PATH/delimiter=\:
++environment/project/0.479967803.158903942/PATH/operation=append
++environment/project/0.479967803.158903942/PATH/value=${PATH}\:/usr/local/bin
++environment/project/0.479967803.158903942/append=true
++environment/project/0.479967803.158903942/appendContributed=true
++environment/project/0.479967803/PATH/delimiter=\:
++environment/project/0.479967803/PATH/operation=append
++environment/project/0.479967803/PATH/value=${PATH}\:/usr/local/bin
++environment/project/0.479967803/append=true
++environment/project/0.479967803/appendContributed=true
+diff --git a/labcodes/lab4/Makefile b/labcodes/lab4/Makefile
+index 25d7a9c..f53ee9c 100644
+--- a/labcodes/lab4/Makefile
++++ b/labcodes/lab4/Makefile
+@@ -241,13 +241,13 @@
+ 
+ debug: $(UCOREIMG) $(SWAPIMG)
+ 	$(V)$(QEMU) -S -s -parallel stdio $(QEMUOPTS) -serial null &
+-	$(V)sleep 2
+-	$(V)$(TERMINAL) -e "$(GDB) -q -x tools/gdbinit"
++#	$(V)sleep 2
++#	$(V)$(TERMINAL) -e "$(GDB) -q -x tools/gdbinit"
+ 
+ debug-nox: $(UCOREIMG) $(SWAPIMG)
+ 	$(V)$(QEMU) -S -s -serial mon:stdio $(QEMUOPTS) -nographic &
+ 	$(V)sleep 2
+-	$(V)$(TERMINAL) -e "$(GDB) -q -x tools/gdbinit"
++#	$(V)$(TERMINAL) -e "$(GDB) -q -x tools/gdbinit"
+ 
+ .PHONY: grade touch
+ 
+diff --git a/labcodes/lab4/kern/debug/kdebug.c b/labcodes/lab4/kern/debug/kdebug.c
+index bb63b7d..88c30fe 100644
+--- a/labcodes/lab4/kern/debug/kdebug.c
++++ b/labcodes/lab4/kern/debug/kdebug.c
+@@ -257,6 +257,13 @@
+     return eip;
+ }
+ 
++static __noinline uint32_t
++read_stack(uint32_t add) {
++	uint32_t data;
++    asm volatile("movl (%1), %0" : "=r" (data) : "r"(add));
++    return data;
++}
++
+ /* *
+  * print_stackframe - print a list of the saved eip values from the nested 'call'
+  * instructions that led to the current point of execution
+@@ -305,5 +312,16 @@
+       *           NOTICE: the calling funciton's return addr eip  = ss:[ebp+4]
+       *                   the calling funciton's ebp = ss:[ebp]
+       */
++	int i = 0;
++
++	uint32_t ebp = read_ebp();
++	uint32_t eip = read_eip();
++
++	for(i = 0;ebp != 0 && i < STACKFRAME_DEPTH;i++){
++		cprintf("ebp:0x%08x eip:0x%08x args:0x%08x 0x%08x 0x%08x 0x%08x\n", ebp, eip, read_stack(ebp + 8),read_stack(ebp + 12),read_stack(ebp + 16),read_stack(ebp + 20));
++		print_debuginfo(eip - 1);
++		eip = ((uint32_t*)ebp)[1]; //read_stack(ebp + 4);
++		ebp = ((uint32_t*)ebp)[0]; //read_stack(ebp);
++	}
+ }
+ 
+diff --git a/labcodes/lab4/kern/init/init.c b/labcodes/lab4/kern/init/init.c
+index ef98412..cffde67 100644
+--- a/labcodes/lab4/kern/init/init.c
++++ b/labcodes/lab4/kern/init/init.c
+@@ -25,7 +25,7 @@
+ 
+     cons_init();                // init the console
+ 
+-    const char *message = "(THU.CST) os is loading ...";
++    const char *message = "aaa任腾爱俞敏敏";
+     cprintf("%s\n\n", message);
+ 
+     print_kerninfo();
+@@ -94,11 +94,24 @@
+ static void
+ lab1_switch_to_user(void) {
+     //LAB1 CHALLENGE 1 : TODO
++	asm volatile (
++	    "sub $0x8, %%esp \n"
++	    "int %0 \n"
++	    "movl %%ebp, %%esp"
++	    :
++	    : "i"(T_SWITCH_TOU)
++	);
+ }
+ 
+ static void
+ lab1_switch_to_kernel(void) {
+     //LAB1 CHALLENGE 1 :  TODO
++	asm volatile (
++	    "int %0 \n"
++	    //"movl %%ebp, %%esp \n"
++	    :
++	    : "i"(T_SWITCH_TOK)
++	);
+ }
+ 
+ static void
+diff --git a/labcodes/lab4/kern/mm/default_pmm.c b/labcodes/lab4/kern/mm/default_pmm.c
+index b388bca..b6b1b38 100644
+--- a/labcodes/lab4/kern/mm/default_pmm.c
++++ b/labcodes/lab4/kern/mm/default_pmm.c
+@@ -127,6 +127,7 @@
+     }
+     struct Page *page = NULL;
+     list_entry_t *le = &free_list;
++    // TODO: optimize (next-fit)
+     while ((le = list_next(le)) != &free_list) {
+         struct Page *p = le2page(le, page_link);
+         if (p->property >= n) {
+@@ -135,12 +136,13 @@
+         }
+     }
+     if (page != NULL) {
+-        list_del(&(page->page_link));
+         if (page->property > n) {
+             struct Page *p = page + n;
+             p->property = page->property - n;
+-            list_add(&free_list, &(p->page_link));
+-    }
++            SetPageProperty(p);
++            list_add_after(&(page->page_link), &(p->page_link));
++        }
++        list_del(&(page->page_link));
+         nr_free -= n;
+         ClearPageProperty(page);
+     }
+@@ -159,23 +161,50 @@
+     base->property = n;
+     SetPageProperty(base);
+     list_entry_t *le = list_next(&free_list);
+-    while (le != &free_list) {
+-        p = le2page(le, page_link);
+-        le = list_next(le);
+-        if (base + base->property == p) {
+-            base->property += p->property;
+-            ClearPageProperty(p);
+-            list_del(&(p->page_link));
+-        }
+-        else if (p + p->property == base) {
+-            p->property += base->property;
+-            ClearPageProperty(base);
+-            base = p;
+-            list_del(&(p->page_link));
++
++    if(le == &free_list){
++    	list_add_after(&free_list, &(base->page_link));
++    	nr_free += n;
++    	return;
++    }
++
++    p = le2page(le, page_link);
++    if(base + base->property < p){
++    	list_add_after(&free_list, &(base->page_link));
++    }else if(base + base->property == p){
++    	ClearPageProperty(p);
++    	base->property += p->property;
++    	list_del(&(p->page_link));
++    	list_add_after(&free_list, &(base->page_link));
++    }else{
++        while (le != &free_list) {
++            p = le2page(le, page_link);
++            le = list_next(le);
++
++            if(p + p->property == base){
++            	p->property += base->property;
++            	ClearPageProperty(base);
++            }else if(base + base->property == p){
++            	struct Page * pre = le2page(p->page_link.prev, page_link);
++            	if(pre + pre->property == p){
++            		pre->property += p->property;
++            		ClearPageProperty(p);
++            		list_del(&(p->page_link));
++            	}else{
++            		base->property += p->property;
++            		ClearPageProperty(p);
++            		list_del(&(p->page_link));
++            		list_add_after(&(pre->page_link), &(base->page_link));
++            	}
++            }else{
++            	if(p + p->property < base &&(le == &free_list || base + base->property < le2page(le, page_link))){
++            		list_add_after(&(p->page_link), &(base->page_link));
++            	}
++            }
+         }
+     }
++
+     nr_free += n;
+-    list_add(&free_list, &(base->page_link));
+ }
+ 
+ static size_t
+diff --git a/labcodes/lab4/kern/mm/pmm.c b/labcodes/lab4/kern/mm/pmm.c
+index bd534bd..84ea9de 100644
+--- a/labcodes/lab4/kern/mm/pmm.c
++++ b/labcodes/lab4/kern/mm/pmm.c
+@@ -363,18 +363,36 @@
+      *   PTE_W           0x002                   // page table/directory entry flags bit : Writeable
+      *   PTE_U           0x004                   // page table/directory entry flags bit : User can access
+      */
+-#if 0
+-    pde_t *pdep = NULL;   // (1) find page directory entry
+-    if (0) {              // (2) check if entry is not present
+-                          // (3) check if creating is needed, then alloc page for page table
+-                          // CAUTION: this page is used for page table, not for common data page
+-                          // (4) set page reference
+-        uintptr_t pa = 0; // (5) get linear address of page
+-                          // (6) clear page content using memset
+-                          // (7) set page directory entry's permission
++	// (1) find page directory entry
++    pde_t *pdep = pgdir + PDX(la);
++    // (2) check if entry is not present
++    if (!(*pdep & PTE_P)) {
++    	// (3) check if creating is needed, then alloc page for page table
++    	// CAUTION: this page is used for page table, not for common data page
++    	if(create){
++    		//cprintf("create la:0x%08x\n",la);
++    		struct Page *page = alloc_page();
++
++    		// (4) set page reference
++    		set_page_ref(page, 1);
++
++    		*pdep = page2pa(page) + PTE_P + PTE_W + PTE_U;
++    		// (5) get linear address of page
++    		pte_t *p = (pte_t*)KADDR(page2pa(page));
++
++    		// (6) clear page content using memset
++    		memset(p, 0, PGSIZE);
++
++    		return KADDR(page2pa(page) + PTX(la));
++    	}else{
++    		return NULL;
++    	}
++        // (7) set page directory entry's permission
++    }else{
++    	//cprintf("(pte_t*)(*pdep) + PTX(la):0x%x,la:0x%x\n", (pte_t*)(*pdep) + PTX(la));
++    	return KADDR((pte_t*)(PDE_ADDR(*pdep)) + PTX(la));
+     }
+     return NULL;          // (8) return page table entry
+-#endif
+ }
+ 
+ //get_page - get related Page struct for linear address la using PDT pgdir
+@@ -411,15 +429,14 @@
+      * DEFINEs:
+      *   PTE_P           0x001                   // page table/directory entry flags bit : Present
+      */
+-#if 0
+-    if (0) {                      //(1) check if this page table entry is present
+-        struct Page *page = NULL; //(2) find corresponding page to pte
+-                                  //(3) decrease page reference
+-                                  //(4) and free this page when page reference reachs 0
+-                                  //(5) clear second page table entry
+-                                  //(6) flush tlb
++    if(*ptep & PTE_P){
++    	struct Page *page = pte2page(*ptep);
++    	page_ref_dec(page);
++    	if(page->ref == 0){
++    		free_page(page);
++    	}
+     }
+-#endif
++    tlb_invalidate(pgdir, la);
+ }
+ 
+ //page_remove - free an Page which is related linear address la and has an validated pte
+diff --git a/labcodes/lab4/kern/mm/swap_fifo.c b/labcodes/lab4/kern/mm/swap_fifo.c
+index cd96a03..c81b96c 100644
+--- a/labcodes/lab4/kern/mm/swap_fifo.c
++++ b/labcodes/lab4/kern/mm/swap_fifo.c
+@@ -51,6 +51,7 @@
+     //record the page access situlation
+     /*LAB3 EXERCISE 2: YOUR CODE*/ 
+     //(1)link the most recent arrival page at the back of the pra_list_head qeueue.
++    list_add_before(head, entry);
+     return 0;
+ }
+ /*
+@@ -67,6 +68,10 @@
+      /*LAB3 EXERCISE 2: YOUR CODE*/ 
+      //(1)  unlink the  earliest arrival page in front of pra_list_head qeueue
+      //(2)  assign the value of *ptr_page to the addr of this page
++     struct Page *page = le2page(head->next, pra_page_link);
++     list_del(head->next);
++     *ptr_page = page;
++     //cprintf("head:0x%08x, page:0x%08x, %la:0x%08x\n", head, page, page->pra_vaddr);
+      return 0;
+ }
+ 
+diff --git a/labcodes/lab4/kern/mm/vmm.c b/labcodes/lab4/kern/mm/vmm.c
+index b402145..081a168 100644
+--- a/labcodes/lab4/kern/mm/vmm.c
++++ b/labcodes/lab4/kern/mm/vmm.c
+@@ -277,6 +277,15 @@
+ //page fault number
+ volatile unsigned int pgfault_num=0;
+ 
++static void
++print_page_list(struct mm_struct *mm){
++	list_entry_t *head=(list_entry_t*) mm->sm_priv;
++	list_entry_t *le = head;
++	while((le = le->next) != head){
++		//cprintf("page va : 0x%08x\n", le2page(le, pra_page_link)->pra_vaddr);
++	}
++}
++
+ /* do_pgfault - interrupt handler to process the page fault execption
+  * @mm         : the control struct for a set of vma using the same PDT
+  * @error_code : the error code recorded in trapframe->tf_err which is setted by x86 hardware
+@@ -361,14 +370,11 @@
+     *   mm->pgdir : the PDT of these vma
+     *
+     */
+-#if 0
+-    /*LAB3 EXERCISE 1: YOUR CODE*/
+-    ptep = ???              //(1) try to find a pte, if pte's PT(Page Table) isn't existed, then create a PT.
++    ptep = get_pte(mm->pgdir, addr, 1);
+     if (*ptep == 0) {
+-                            //(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
+-
+-    }
+-    else {
++		//(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
++    	pgdir_alloc_page(mm->pgdir, addr, perm);
++    }else{
+     /*LAB3 EXERCISE 2: YOUR CODE
+     * Now we think this pte is a  swap entry, we should load data from disk to a page with phy addr,
+     * and map the phy addr with logical addr, trigger swap manager to record the access situation of this page.
+@@ -380,20 +386,26 @@
+     *    page_insert ： build the map of phy addr of an Page with the linear addr la
+     *    swap_map_swappable ： set the page swappable
+     */
++
++
++        //(1）According to the mm AND addr, try to load the content of right disk page
++        //    into the memory which page managed.
++        //(2) According to the mm, addr AND page, setup the map of phy addr <---> logical addr
++        //(3) make the page swappable.
+         if(swap_init_ok) {
+             struct Page *page=NULL;
+-                                    //(1）According to the mm AND addr, try to load the content of right disk page
+-                                    //    into the memory which page managed.
+-                                    //(2) According to the mm, addr AND page, setup the map of phy addr <---> logical addr
+-                                    //(3) make the page swappable.
++			swap_in(mm, addr, &page);
++			page_insert(mm->pgdir, page, addr, perm);
++			swap_map_swappable(mm, addr,page, 1);
++			page->pra_vaddr=addr;
+         }
+         else {
+             cprintf("no swap_init_ok but ptep is %x, failed\n",*ptep);
+             goto failed;
+         }
+    }
+-#endif
+    ret = 0;
++   print_page_list(mm);
+ failed:
+     return ret;
+ }
+diff --git a/labcodes/lab4/kern/process/proc.c b/labcodes/lab4/kern/process/proc.c
+index 7d57c65..8adabb8 100644
+--- a/labcodes/lab4/kern/process/proc.c
++++ b/labcodes/lab4/kern/process/proc.c
+@@ -80,6 +80,7 @@
+ void kernel_thread_entry(void);
+ void forkrets(struct trapframe *tf);
+ void switch_to(struct context *from, struct context *to);
++static int get_pid(void);
+ 
+ // alloc_proc - alloc a proc_struct and init all fields of proc_struct
+ static struct proc_struct *
+@@ -102,6 +103,17 @@
+      *       uint32_t flags;                             // Process flag
+      *       char name[PROC_NAME_LEN + 1];               // Process name
+      */
++    	proc->state = PROC_UNINIT;
++    	proc->pid = -1;
++    	proc->runs = 0;
++    	proc->kstack = 0;
++    	proc->need_resched = 0;
++    	proc->parent = NULL;
++    	proc->mm = NULL;
++    	memset(&proc->context, 0, sizeof(struct context));
++    	proc->cr3 = boot_cr3;
++    	proc->flags = 0;
++    	memset(proc->name, 0, PROC_NAME_LEN);
+     }
+     return proc;
+ }
+@@ -170,6 +182,7 @@
+             lcr3(next->cr3);
+             switch_to(&(prev->context), &(next->context));
+         }
++        cprintf("此处应执行不到");
+         local_intr_restore(intr_flag);
+     }
+ }
+@@ -296,6 +309,33 @@
+     //    5. insert proc_struct into hash_list && proc_list
+     //    6. call wakeup_proc to make the new child process RUNNABLE
+     //    7. set ret vaule using child proc's pid
++
++	if((proc = alloc_proc()) == NULL){
++		goto bad_fork_cleanup_proc;
++	}
++
++	if(setup_kstack(proc) != 0){
++		goto bad_fork_cleanup_kstack;
++	}
++
++	proc->parent = current;
++
++    copy_mm(clone_flags, proc);
++    copy_thread(proc, stack, tf);
++
++    bool intr_flag;
++    local_intr_save(intr_flag);
++    {
++        proc->pid = get_pid();
++        list_add(&proc_list, &proc->list_link);
++        hash_proc(proc);
++        nr_process++;
++    }
++    local_intr_restore(intr_flag);
++
++    wakeup_proc(proc);
++    ret = proc->pid;
++
+ fork_out:
+     return ret;
+ 
+@@ -313,6 +353,9 @@
+ int
+ do_exit(int error_code) {
+     panic("process exit!!.\n");
++	//exit_mmap()
++	//put_pgdir
++
+ }
+ 
+ // init_main - the second kernel thread used to create user_main kernel threads
+diff --git a/labcodes/lab4/kern/schedule/sched.c b/labcodes/lab4/kern/schedule/sched.c
+index 8c8c1a8..d2d9d0b 100644
+--- a/labcodes/lab4/kern/schedule/sched.c
++++ b/labcodes/lab4/kern/schedule/sched.c
+@@ -35,6 +35,7 @@
+         if (next != current) {
+             proc_run(next);
+         }
++        cprintf("此处应执行不到");
+     }
+     local_intr_restore(intr_flag);
+ }
+diff --git a/labcodes/lab4/kern/trap/trap.c b/labcodes/lab4/kern/trap/trap.c
+index 90f266e..83a8259 100644
+--- a/labcodes/lab4/kern/trap/trap.c
++++ b/labcodes/lab4/kern/trap/trap.c
+@@ -48,6 +48,15 @@
+       *     You don't know the meaning of this instruction? just google it! and check the libs/x86.h to know more.
+       *     Notice: the argument of lidt is idt_pd. try to find it!
+       */
++	extern uintptr_t __vectors[];
++	int i = 0;
++	for(i = 0;i < 256;i++){
++		SETGATE(idt[i], 0, GD_KTEXT,__vectors[i], DPL_KERNEL);
++	}
++
++	SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
++
++	lidt(&idt_pd);
+ }
+ 
+ static const char *
+@@ -136,6 +145,8 @@
+     cprintf("  eax  0x%08x\n", regs->reg_eax);
+ }
+ 
++
++
+ static inline void
+ print_pgfault(struct trapframe *tf) {
+     /* error_code:
+@@ -162,6 +173,8 @@
+ static volatile int in_swap_tick_event = 0;
+ extern struct mm_struct *check_mm_struct;
+ 
++struct trapframe switchk2u, *switchu2k;
++
+ static void
+ trap_dispatch(struct trapframe *tf) {
+     char c;
+@@ -186,6 +199,10 @@
+          * (2) Every TICK_NUM cycle, you can print some info using a funciton, such as print_ticks().
+          * (3) Too Simple? Yes, I think so!
+          */
++		ticks++;
++		if(ticks % TICK_NUM == 0){
++			print_ticks();
++		}
+         break;
+     case IRQ_OFFSET + IRQ_COM1:
+         c = cons_getc();
+@@ -197,8 +214,32 @@
+         break;
+     //LAB1 CHALLENGE 1 : YOUR CODE you should modify below codes.
+     case T_SWITCH_TOU:
++        if (tf->tf_cs != USER_CS) {
++            switchk2u = *tf;
++            switchk2u.tf_cs = USER_CS;
++            switchk2u.tf_ds = switchk2u.tf_es = switchk2u.tf_ss = USER_DS;
++            //switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
++
++            switchk2u.tf_esp = &tf->tf_esp;
++            // set eflags, make sure ucore can use io under user mode.
++            // if CPL > IOPL, then cpu will generate a general protection.
++            switchk2u.tf_eflags |= FL_IOPL_MASK;
++
++            // set temporary stack
++            // then iret will jump to the right stack
++            *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
++        }
++    	break;
+     case T_SWITCH_TOK:
+-        panic("T_SWITCH_** ??\n");
++        //panic("T_SWITCH_** ??\n");
++        if (tf->tf_cs != KERNEL_CS) {
++            tf->tf_cs = KERNEL_CS;
++            tf->tf_ds = tf->tf_es = KERNEL_DS;
++            tf->tf_eflags &= ~FL_IOPL_MASK;
++            switchu2k = (struct trapframe *)(tf->tf_esp - (sizeof(struct trapframe) - 8));
++            memmove(switchu2k, tf, sizeof(struct trapframe) - 8);
++            *((uint32_t *)tf - 1) = (uint32_t)switchu2k;
++        }
+         break;
+     case IRQ_OFFSET + IRQ_IDE1:
+     case IRQ_OFFSET + IRQ_IDE2:
+diff --git a/labcodes/lab4/maked.sh b/labcodes/lab4/maked.sh
+new file mode 100644
+index 0000000..5dae028
+--- /dev/null
++++ b/labcodes/lab4/maked.sh
+@@ -0,0 +1,2 @@
++nohup make debug &
++exit
+\ No newline at end of file
+diff --git a/labcodes/lab4/nohup.out b/labcodes/lab4/nohup.out
+new file mode 100644
+index 0000000..3f6afdb
+--- /dev/null
++++ b/labcodes/lab4/nohup.out
+@@ -0,0 +1,12 @@
++WARNING: Image format was not specified for 'bin/ucore.img' and probing guessed raw.
++         Automatically detecting the format is dangerous for raw images, write operations on block 0 will be restricted.
++         Specify the 'raw' format explicitly to remove the restrictions.
++WARNING: Image format was not specified for 'bin/swap.img' and probing guessed raw.
++         Automatically detecting the format is dangerous for raw images, write operations on block 0 will be restricted.
++         Specify the 'raw' format explicitly to remove the restrictions.
++WARNING: Image format was not specified for 'bin/ucore.img' and probing guessed raw.
++         Automatically detecting the format is dangerous for raw images, write operations on block 0 will be restricted.
++         Specify the 'raw' format explicitly to remove the restrictions.
++WARNING: Image format was not specified for 'bin/swap.img' and probing guessed raw.
++         Automatically detecting the format is dangerous for raw images, write operations on block 0 will be restricted.
++         Specify the 'raw' format explicitly to remove the restrictions.
+diff --git a/labcodes/lab4/os_kernel_lab.patch b/labcodes/lab4/os_kernel_lab.patch
+new file mode 100644
+index 0000000..68a8e35
+--- /dev/null
++++ b/labcodes/lab4/os_kernel_lab.patch
+@@ -0,0 +1,577 @@
++diff --git a/labcodes/lab4/.settings/org.eclipse.cdt.core.prefs b/labcodes/lab4/.settings/org.eclipse.cdt.core.prefs
++new file mode 100644
++index 0000000..441beaa
++--- /dev/null
+++++ b/labcodes/lab4/.settings/org.eclipse.cdt.core.prefs
++@@ -0,0 +1,11 @@
+++eclipse.preferences.version=1
+++environment/project/0.479967803.158903942/PATH/delimiter=\:
+++environment/project/0.479967803.158903942/PATH/operation=append
+++environment/project/0.479967803.158903942/PATH/value=${PATH}\:/usr/local/bin
+++environment/project/0.479967803.158903942/append=true
+++environment/project/0.479967803.158903942/appendContributed=true
+++environment/project/0.479967803/PATH/delimiter=\:
+++environment/project/0.479967803/PATH/operation=append
+++environment/project/0.479967803/PATH/value=${PATH}\:/usr/local/bin
+++environment/project/0.479967803/append=true
+++environment/project/0.479967803/appendContributed=true
++diff --git a/labcodes/lab4/Makefile b/labcodes/lab4/Makefile
++index 25d7a9c..f53ee9c 100644
++--- a/labcodes/lab4/Makefile
+++++ b/labcodes/lab4/Makefile
++@@ -241,13 +241,13 @@
++ 
++ debug: $(UCOREIMG) $(SWAPIMG)
++ 	$(V)$(QEMU) -S -s -parallel stdio $(QEMUOPTS) -serial null &
++-	$(V)sleep 2
++-	$(V)$(TERMINAL) -e "$(GDB) -q -x tools/gdbinit"
+++#	$(V)sleep 2
+++#	$(V)$(TERMINAL) -e "$(GDB) -q -x tools/gdbinit"
++ 
++ debug-nox: $(UCOREIMG) $(SWAPIMG)
++ 	$(V)$(QEMU) -S -s -serial mon:stdio $(QEMUOPTS) -nographic &
++ 	$(V)sleep 2
++-	$(V)$(TERMINAL) -e "$(GDB) -q -x tools/gdbinit"
+++#	$(V)$(TERMINAL) -e "$(GDB) -q -x tools/gdbinit"
++ 
++ .PHONY: grade touch
++ 
++diff --git a/labcodes/lab4/kern/debug/kdebug.c b/labcodes/lab4/kern/debug/kdebug.c
++index bb63b7d..88c30fe 100644
++--- a/labcodes/lab4/kern/debug/kdebug.c
+++++ b/labcodes/lab4/kern/debug/kdebug.c
++@@ -257,6 +257,13 @@
++     return eip;
++ }
++ 
+++static __noinline uint32_t
+++read_stack(uint32_t add) {
+++	uint32_t data;
+++    asm volatile("movl (%1), %0" : "=r" (data) : "r"(add));
+++    return data;
+++}
+++
++ /* *
++  * print_stackframe - print a list of the saved eip values from the nested 'call'
++  * instructions that led to the current point of execution
++@@ -305,5 +312,16 @@
++       *           NOTICE: the calling funciton's return addr eip  = ss:[ebp+4]
++       *                   the calling funciton's ebp = ss:[ebp]
++       */
+++	int i = 0;
+++
+++	uint32_t ebp = read_ebp();
+++	uint32_t eip = read_eip();
+++
+++	for(i = 0;ebp != 0 && i < STACKFRAME_DEPTH;i++){
+++		cprintf("ebp:0x%08x eip:0x%08x args:0x%08x 0x%08x 0x%08x 0x%08x\n", ebp, eip, read_stack(ebp + 8),read_stack(ebp + 12),read_stack(ebp + 16),read_stack(ebp + 20));
+++		print_debuginfo(eip - 1);
+++		eip = ((uint32_t*)ebp)[1]; //read_stack(ebp + 4);
+++		ebp = ((uint32_t*)ebp)[0]; //read_stack(ebp);
+++	}
++ }
++ 
++diff --git a/labcodes/lab4/kern/init/init.c b/labcodes/lab4/kern/init/init.c
++index ef98412..cffde67 100644
++--- a/labcodes/lab4/kern/init/init.c
+++++ b/labcodes/lab4/kern/init/init.c
++@@ -25,7 +25,7 @@
++ 
++     cons_init();                // init the console
++ 
++-    const char *message = "(THU.CST) os is loading ...";
+++    const char *message = "aaa任腾爱俞敏敏";
++     cprintf("%s\n\n", message);
++ 
++     print_kerninfo();
++@@ -94,11 +94,24 @@
++ static void
++ lab1_switch_to_user(void) {
++     //LAB1 CHALLENGE 1 : TODO
+++	asm volatile (
+++	    "sub $0x8, %%esp \n"
+++	    "int %0 \n"
+++	    "movl %%ebp, %%esp"
+++	    :
+++	    : "i"(T_SWITCH_TOU)
+++	);
++ }
++ 
++ static void
++ lab1_switch_to_kernel(void) {
++     //LAB1 CHALLENGE 1 :  TODO
+++	asm volatile (
+++	    "int %0 \n"
+++	    //"movl %%ebp, %%esp \n"
+++	    :
+++	    : "i"(T_SWITCH_TOK)
+++	);
++ }
++ 
++ static void
++diff --git a/labcodes/lab4/kern/mm/default_pmm.c b/labcodes/lab4/kern/mm/default_pmm.c
++index b388bca..b6b1b38 100644
++--- a/labcodes/lab4/kern/mm/default_pmm.c
+++++ b/labcodes/lab4/kern/mm/default_pmm.c
++@@ -127,6 +127,7 @@
++     }
++     struct Page *page = NULL;
++     list_entry_t *le = &free_list;
+++    // TODO: optimize (next-fit)
++     while ((le = list_next(le)) != &free_list) {
++         struct Page *p = le2page(le, page_link);
++         if (p->property >= n) {
++@@ -135,12 +136,13 @@
++         }
++     }
++     if (page != NULL) {
++-        list_del(&(page->page_link));
++         if (page->property > n) {
++             struct Page *p = page + n;
++             p->property = page->property - n;
++-            list_add(&free_list, &(p->page_link));
++-    }
+++            SetPageProperty(p);
+++            list_add_after(&(page->page_link), &(p->page_link));
+++        }
+++        list_del(&(page->page_link));
++         nr_free -= n;
++         ClearPageProperty(page);
++     }
++@@ -159,23 +161,50 @@
++     base->property = n;
++     SetPageProperty(base);
++     list_entry_t *le = list_next(&free_list);
++-    while (le != &free_list) {
++-        p = le2page(le, page_link);
++-        le = list_next(le);
++-        if (base + base->property == p) {
++-            base->property += p->property;
++-            ClearPageProperty(p);
++-            list_del(&(p->page_link));
++-        }
++-        else if (p + p->property == base) {
++-            p->property += base->property;
++-            ClearPageProperty(base);
++-            base = p;
++-            list_del(&(p->page_link));
+++
+++    if(le == &free_list){
+++    	list_add_after(&free_list, &(base->page_link));
+++    	nr_free += n;
+++    	return;
+++    }
+++
+++    p = le2page(le, page_link);
+++    if(base + base->property < p){
+++    	list_add_after(&free_list, &(base->page_link));
+++    }else if(base + base->property == p){
+++    	ClearPageProperty(p);
+++    	base->property += p->property;
+++    	list_del(&(p->page_link));
+++    	list_add_after(&free_list, &(base->page_link));
+++    }else{
+++        while (le != &free_list) {
+++            p = le2page(le, page_link);
+++            le = list_next(le);
+++
+++            if(p + p->property == base){
+++            	p->property += base->property;
+++            	ClearPageProperty(base);
+++            }else if(base + base->property == p){
+++            	struct Page * pre = le2page(p->page_link.prev, page_link);
+++            	if(pre + pre->property == p){
+++            		pre->property += p->property;
+++            		ClearPageProperty(p);
+++            		list_del(&(p->page_link));
+++            	}else{
+++            		base->property += p->property;
+++            		ClearPageProperty(p);
+++            		list_del(&(p->page_link));
+++            		list_add_after(&(pre->page_link), &(base->page_link));
+++            	}
+++            }else{
+++            	if(p + p->property < base &&(le == &free_list || base + base->property < le2page(le, page_link))){
+++            		list_add_after(&(p->page_link), &(base->page_link));
+++            	}
+++            }
++         }
++     }
+++
++     nr_free += n;
++-    list_add(&free_list, &(base->page_link));
++ }
++ 
++ static size_t
++diff --git a/labcodes/lab4/kern/mm/pmm.c b/labcodes/lab4/kern/mm/pmm.c
++index bd534bd..84ea9de 100644
++--- a/labcodes/lab4/kern/mm/pmm.c
+++++ b/labcodes/lab4/kern/mm/pmm.c
++@@ -363,18 +363,36 @@
++      *   PTE_W           0x002                   // page table/directory entry flags bit : Writeable
++      *   PTE_U           0x004                   // page table/directory entry flags bit : User can access
++      */
++-#if 0
++-    pde_t *pdep = NULL;   // (1) find page directory entry
++-    if (0) {              // (2) check if entry is not present
++-                          // (3) check if creating is needed, then alloc page for page table
++-                          // CAUTION: this page is used for page table, not for common data page
++-                          // (4) set page reference
++-        uintptr_t pa = 0; // (5) get linear address of page
++-                          // (6) clear page content using memset
++-                          // (7) set page directory entry's permission
+++	// (1) find page directory entry
+++    pde_t *pdep = pgdir + PDX(la);
+++    // (2) check if entry is not present
+++    if (!(*pdep & PTE_P)) {
+++    	// (3) check if creating is needed, then alloc page for page table
+++    	// CAUTION: this page is used for page table, not for common data page
+++    	if(create){
+++    		//cprintf("create la:0x%08x\n",la);
+++    		struct Page *page = alloc_page();
+++
+++    		// (4) set page reference
+++    		set_page_ref(page, 1);
+++
+++    		*pdep = page2pa(page) + PTE_P + PTE_W + PTE_U;
+++    		// (5) get linear address of page
+++    		pte_t *p = (pte_t*)KADDR(page2pa(page));
+++
+++    		// (6) clear page content using memset
+++    		memset(p, 0, PGSIZE);
+++
+++    		return KADDR(page2pa(page) + PTX(la));
+++    	}else{
+++    		return NULL;
+++    	}
+++        // (7) set page directory entry's permission
+++    }else{
+++    	//cprintf("(pte_t*)(*pdep) + PTX(la):0x%x,la:0x%x\n", (pte_t*)(*pdep) + PTX(la));
+++    	return KADDR((pte_t*)(PDE_ADDR(*pdep)) + PTX(la));
++     }
++     return NULL;          // (8) return page table entry
++-#endif
++ }
++ 
++ //get_page - get related Page struct for linear address la using PDT pgdir
++@@ -411,15 +429,14 @@
++      * DEFINEs:
++      *   PTE_P           0x001                   // page table/directory entry flags bit : Present
++      */
++-#if 0
++-    if (0) {                      //(1) check if this page table entry is present
++-        struct Page *page = NULL; //(2) find corresponding page to pte
++-                                  //(3) decrease page reference
++-                                  //(4) and free this page when page reference reachs 0
++-                                  //(5) clear second page table entry
++-                                  //(6) flush tlb
+++    if(*ptep & PTE_P){
+++    	struct Page *page = pte2page(*ptep);
+++    	page_ref_dec(page);
+++    	if(page->ref == 0){
+++    		free_page(page);
+++    	}
++     }
++-#endif
+++    tlb_invalidate(pgdir, la);
++ }
++ 
++ //page_remove - free an Page which is related linear address la and has an validated pte
++diff --git a/labcodes/lab4/kern/mm/swap_fifo.c b/labcodes/lab4/kern/mm/swap_fifo.c
++index cd96a03..c81b96c 100644
++--- a/labcodes/lab4/kern/mm/swap_fifo.c
+++++ b/labcodes/lab4/kern/mm/swap_fifo.c
++@@ -51,6 +51,7 @@
++     //record the page access situlation
++     /*LAB3 EXERCISE 2: YOUR CODE*/ 
++     //(1)link the most recent arrival page at the back of the pra_list_head qeueue.
+++    list_add_before(head, entry);
++     return 0;
++ }
++ /*
++@@ -67,6 +68,10 @@
++      /*LAB3 EXERCISE 2: YOUR CODE*/ 
++      //(1)  unlink the  earliest arrival page in front of pra_list_head qeueue
++      //(2)  assign the value of *ptr_page to the addr of this page
+++     struct Page *page = le2page(head->next, pra_page_link);
+++     list_del(head->next);
+++     *ptr_page = page;
+++     //cprintf("head:0x%08x, page:0x%08x, %la:0x%08x\n", head, page, page->pra_vaddr);
++      return 0;
++ }
++ 
++diff --git a/labcodes/lab4/kern/mm/vmm.c b/labcodes/lab4/kern/mm/vmm.c
++index b402145..081a168 100644
++--- a/labcodes/lab4/kern/mm/vmm.c
+++++ b/labcodes/lab4/kern/mm/vmm.c
++@@ -277,6 +277,15 @@
++ //page fault number
++ volatile unsigned int pgfault_num=0;
++ 
+++static void
+++print_page_list(struct mm_struct *mm){
+++	list_entry_t *head=(list_entry_t*) mm->sm_priv;
+++	list_entry_t *le = head;
+++	while((le = le->next) != head){
+++		//cprintf("page va : 0x%08x\n", le2page(le, pra_page_link)->pra_vaddr);
+++	}
+++}
+++
++ /* do_pgfault - interrupt handler to process the page fault execption
++  * @mm         : the control struct for a set of vma using the same PDT
++  * @error_code : the error code recorded in trapframe->tf_err which is setted by x86 hardware
++@@ -361,14 +370,11 @@
++     *   mm->pgdir : the PDT of these vma
++     *
++     */
++-#if 0
++-    /*LAB3 EXERCISE 1: YOUR CODE*/
++-    ptep = ???              //(1) try to find a pte, if pte's PT(Page Table) isn't existed, then create a PT.
+++    ptep = get_pte(mm->pgdir, addr, 1);
++     if (*ptep == 0) {
++-                            //(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
++-
++-    }
++-    else {
+++		//(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
+++    	pgdir_alloc_page(mm->pgdir, addr, perm);
+++    }else{
++     /*LAB3 EXERCISE 2: YOUR CODE
++     * Now we think this pte is a  swap entry, we should load data from disk to a page with phy addr,
++     * and map the phy addr with logical addr, trigger swap manager to record the access situation of this page.
++@@ -380,20 +386,26 @@
++     *    page_insert ： build the map of phy addr of an Page with the linear addr la
++     *    swap_map_swappable ： set the page swappable
++     */
+++
+++
+++        //(1）According to the mm AND addr, try to load the content of right disk page
+++        //    into the memory which page managed.
+++        //(2) According to the mm, addr AND page, setup the map of phy addr <---> logical addr
+++        //(3) make the page swappable.
++         if(swap_init_ok) {
++             struct Page *page=NULL;
++-                                    //(1）According to the mm AND addr, try to load the content of right disk page
++-                                    //    into the memory which page managed.
++-                                    //(2) According to the mm, addr AND page, setup the map of phy addr <---> logical addr
++-                                    //(3) make the page swappable.
+++			swap_in(mm, addr, &page);
+++			page_insert(mm->pgdir, page, addr, perm);
+++			swap_map_swappable(mm, addr,page, 1);
+++			page->pra_vaddr=addr;
++         }
++         else {
++             cprintf("no swap_init_ok but ptep is %x, failed\n",*ptep);
++             goto failed;
++         }
++    }
++-#endif
++    ret = 0;
+++   print_page_list(mm);
++ failed:
++     return ret;
++ }
++diff --git a/labcodes/lab4/kern/process/proc.c b/labcodes/lab4/kern/process/proc.c
++index 7d57c65..8adabb8 100644
++--- a/labcodes/lab4/kern/process/proc.c
+++++ b/labcodes/lab4/kern/process/proc.c
++@@ -80,6 +80,7 @@
++ void kernel_thread_entry(void);
++ void forkrets(struct trapframe *tf);
++ void switch_to(struct context *from, struct context *to);
+++static int get_pid(void);
++ 
++ // alloc_proc - alloc a proc_struct and init all fields of proc_struct
++ static struct proc_struct *
++@@ -102,6 +103,17 @@
++      *       uint32_t flags;                             // Process flag
++      *       char name[PROC_NAME_LEN + 1];               // Process name
++      */
+++    	proc->state = PROC_UNINIT;
+++    	proc->pid = -1;
+++    	proc->runs = 0;
+++    	proc->kstack = 0;
+++    	proc->need_resched = 0;
+++    	proc->parent = NULL;
+++    	proc->mm = NULL;
+++    	memset(&proc->context, 0, sizeof(struct context));
+++    	proc->cr3 = boot_cr3;
+++    	proc->flags = 0;
+++    	memset(proc->name, 0, PROC_NAME_LEN);
++     }
++     return proc;
++ }
++@@ -170,6 +182,7 @@
++             lcr3(next->cr3);
++             switch_to(&(prev->context), &(next->context));
++         }
+++        cprintf("此处应执行不到");
++         local_intr_restore(intr_flag);
++     }
++ }
++@@ -296,6 +309,33 @@
++     //    5. insert proc_struct into hash_list && proc_list
++     //    6. call wakeup_proc to make the new child process RUNNABLE
++     //    7. set ret vaule using child proc's pid
+++
+++	if((proc = alloc_proc()) == NULL){
+++		goto bad_fork_cleanup_proc;
+++	}
+++
+++	if(setup_kstack(proc) != 0){
+++		goto bad_fork_cleanup_kstack;
+++	}
+++
+++	proc->parent = current;
+++
+++    copy_mm(clone_flags, proc);
+++    copy_thread(proc, stack, tf);
+++
+++    bool intr_flag;
+++    local_intr_save(intr_flag);
+++    {
+++        proc->pid = get_pid();
+++        list_add(&proc_list, &proc->list_link);
+++        hash_proc(proc);
+++        nr_process++;
+++    }
+++    local_intr_restore(intr_flag);
+++
+++    wakeup_proc(proc);
+++    ret = proc->pid;
+++
++ fork_out:
++     return ret;
++ 
++@@ -313,6 +353,9 @@
++ int
++ do_exit(int error_code) {
++     panic("process exit!!.\n");
+++	//exit_mmap()
+++	//put_pgdir
+++
++ }
++ 
++ // init_main - the second kernel thread used to create user_main kernel threads
++diff --git a/labcodes/lab4/kern/schedule/sched.c b/labcodes/lab4/kern/schedule/sched.c
++index 8c8c1a8..d2d9d0b 100644
++--- a/labcodes/lab4/kern/schedule/sched.c
+++++ b/labcodes/lab4/kern/schedule/sched.c
++@@ -35,6 +35,7 @@
++         if (next != current) {
++             proc_run(next);
++         }
+++        cprintf("此处应执行不到");
++     }
++     local_intr_restore(intr_flag);
++ }
++diff --git a/labcodes/lab4/kern/trap/trap.c b/labcodes/lab4/kern/trap/trap.c
++index 90f266e..83a8259 100644
++--- a/labcodes/lab4/kern/trap/trap.c
+++++ b/labcodes/lab4/kern/trap/trap.c
++@@ -48,6 +48,15 @@
++       *     You don't know the meaning of this instruction? just google it! and check the libs/x86.h to know more.
++       *     Notice: the argument of lidt is idt_pd. try to find it!
++       */
+++	extern uintptr_t __vectors[];
+++	int i = 0;
+++	for(i = 0;i < 256;i++){
+++		SETGATE(idt[i], 0, GD_KTEXT,__vectors[i], DPL_KERNEL);
+++	}
+++
+++	SETGATE(idt[T_SWITCH_TOK], 0, GD_KTEXT, __vectors[T_SWITCH_TOK], DPL_USER);
+++
+++	lidt(&idt_pd);
++ }
++ 
++ static const char *
++@@ -136,6 +145,8 @@
++     cprintf("  eax  0x%08x\n", regs->reg_eax);
++ }
++ 
+++
+++
++ static inline void
++ print_pgfault(struct trapframe *tf) {
++     /* error_code:
++@@ -162,6 +173,8 @@
++ static volatile int in_swap_tick_event = 0;
++ extern struct mm_struct *check_mm_struct;
++ 
+++struct trapframe switchk2u, *switchu2k;
+++
++ static void
++ trap_dispatch(struct trapframe *tf) {
++     char c;
++@@ -186,6 +199,10 @@
++          * (2) Every TICK_NUM cycle, you can print some info using a funciton, such as print_ticks().
++          * (3) Too Simple? Yes, I think so!
++          */
+++		ticks++;
+++		if(ticks % TICK_NUM == 0){
+++			print_ticks();
+++		}
++         break;
++     case IRQ_OFFSET + IRQ_COM1:
++         c = cons_getc();
++@@ -197,8 +214,32 @@
++         break;
++     //LAB1 CHALLENGE 1 : YOUR CODE you should modify below codes.
++     case T_SWITCH_TOU:
+++        if (tf->tf_cs != USER_CS) {
+++            switchk2u = *tf;
+++            switchk2u.tf_cs = USER_CS;
+++            switchk2u.tf_ds = switchk2u.tf_es = switchk2u.tf_ss = USER_DS;
+++            //switchk2u.tf_esp = (uint32_t)tf + sizeof(struct trapframe) - 8;
+++
+++            switchk2u.tf_esp = &tf->tf_esp;
+++            // set eflags, make sure ucore can use io under user mode.
+++            // if CPL > IOPL, then cpu will generate a general protection.
+++            switchk2u.tf_eflags |= FL_IOPL_MASK;
+++
+++            // set temporary stack
+++            // then iret will jump to the right stack
+++            *((uint32_t *)tf - 1) = (uint32_t)&switchk2u;
+++        }
+++    	break;
++     case T_SWITCH_TOK:
++-        panic("T_SWITCH_** ??\n");
+++        //panic("T_SWITCH_** ??\n");
+++        if (tf->tf_cs != KERNEL_CS) {
+++            tf->tf_cs = KERNEL_CS;
+++            tf->tf_ds = tf->tf_es = KERNEL_DS;
+++            tf->tf_eflags &= ~FL_IOPL_MASK;
+++            switchu2k = (struct trapframe *)(tf->tf_esp - (sizeof(struct trapframe) - 8));
+++            memmove(switchu2k, tf, sizeof(struct trapframe) - 8);
+++            *((uint32_t *)tf - 1) = (uint32_t)switchu2k;
+++        }
++         break;
++     case IRQ_OFFSET + IRQ_IDE1:
++     case IRQ_OFFSET + IRQ_IDE2:
++diff --git a/labcodes/lab4/maked.sh b/labcodes/lab4/maked.sh
++new file mode 100644
++index 0000000..5dae028
++--- /dev/null
+++++ b/labcodes/lab4/maked.sh
++@@ -0,0 +1,2 @@
+++nohup make debug &
+++exit
++\ No newline at end of file
++diff --git a/labcodes/lab4/nohup.out b/labcodes/lab4/nohup.out
++new file mode 100644
++index 0000000..3f6afdb
++--- /dev/null
+++++ b/labcodes/lab4/nohup.out
++@@ -0,0 +1,12 @@
+++WARNING: Image format was not specified for 'bin/ucore.img' and probing guessed raw.
+++         Automatically detecting the format is dangerous for raw images, write operations on block 0 will be restricted.
+++         Specify the 'raw' format explicitly to remove the restrictions.
+++WARNING: Image format was not specified for 'bin/swap.img' and probing guessed raw.
+++         Automatically detecting the format is dangerous for raw images, write operations on block 0 will be restricted.
+++         Specify the 'raw' format explicitly to remove the restrictions.
+++WARNING: Image format was not specified for 'bin/ucore.img' and probing guessed raw.
+++         Automatically detecting the format is dangerous for raw images, write operations on block 0 will be restricted.
+++         Specify the 'raw' format explicitly to remove the restrictions.
+++WARNING: Image format was not specified for 'bin/swap.img' and probing guessed raw.
+++         Automatically detecting the format is dangerous for raw images, write operations on block 0 will be restricted.
+++         Specify the 'raw' format explicitly to remove the restrictions.

@@ -35,6 +35,7 @@ schedule(void) {
         if (next != current) {
             proc_run(next);
         }
+        cprintf("此处应执行不到");
     }
     local_intr_restore(intr_flag);
 }
